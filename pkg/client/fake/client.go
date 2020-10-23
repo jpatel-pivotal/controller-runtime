@@ -45,8 +45,9 @@ type versionedTracker struct {
 }
 
 type fakeClient struct {
-	tracker versionedTracker
-	scheme  *runtime.Scheme
+	tracker    versionedTracker
+	scheme     *runtime.Scheme
+	restMapper meta.RESTMapper
 }
 
 var _ client.Client = &fakeClient{}
@@ -135,9 +136,20 @@ func (f *ClientBuilder) Build() client.Client {
 		}
 	}
 	return &fakeClient{
-		tracker: tracker,
-		scheme:  f.scheme,
+		tracker:    tracker,
+		scheme:     f.scheme,
+		restMapper: NewRESTMapperForScheme(f.scheme),
 	}
+}
+
+func NewRESTMapperForScheme(clientScheme *runtime.Scheme) meta.RESTMapper {
+	gvs := clientScheme.PrioritizedVersionsAllGroups()
+	restMapper := meta.NewDefaultRESTMapper(gvs)
+	knownTypes := clientScheme.AllKnownTypes()
+	for gvk := range knownTypes {
+		restMapper.Add(gvk, meta.RESTScopeNamespace)
+	}
+	return restMapper
 }
 
 const trackerAddResourceVersion = "999"
@@ -343,8 +355,7 @@ func (c *fakeClient) Scheme() *runtime.Scheme {
 }
 
 func (c *fakeClient) RESTMapper() meta.RESTMapper {
-	// TODO: Implement a fake RESTMapper.
-	return nil
+	return c.restMapper
 }
 
 func (c *fakeClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
