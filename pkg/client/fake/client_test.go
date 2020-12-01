@@ -19,7 +19,6 @@ package fake
 import (
 	"context"
 	"encoding/json"
-
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -545,5 +544,97 @@ var _ = Describe("Fake client", func() {
 			close(done)
 		})
 		AssertClientBehavior()
+	})
+	Context("with injected error", func() {
+		var (
+			dep3 *appsv1.Deployment
+			cm1  *corev1.ConfigMap
+		)
+		BeforeEach(func(done Done) {
+			scheme := runtime.NewScheme()
+			Expect(corev1.AddToScheme(scheme)).To(Succeed())
+			Expect(appsv1.AddToScheme(scheme)).To(Succeed())
+			Expect(coordinationv1.AddToScheme(scheme)).To(Succeed())
+			dep3 = dep.DeepCopy()
+			dep3.Name = "test-deployment-3"
+			cm1 = cm.DeepCopy()
+			cm1.Name = "test-cm1"
+			testError := errors.NewBadRequest("test error")
+			errorsToReturn := map[errorKey]error{
+				errorKey{
+					action:   "create",
+					resource: dep3,
+					resourceKey: client.ObjectKey{
+						Namespace: dep3.Namespace,
+						Name:      dep3.Name,
+					},
+				}: testError,
+				errorKey{
+					action:   "create",
+					resource: cm1,
+					resourceKey: client.ObjectKey{
+						Namespace: cm1.Namespace,
+						Name:      cm1.Name,
+					},
+				}: testError,
+				errorKey{
+					action:   "update",
+					resource: dep3,
+					resourceKey: client.ObjectKey{
+						Namespace: dep3.Namespace,
+						Name:      dep3.Name,
+					},
+				}: testError,
+				errorKey{
+					action:   "update",
+					resource: cm1,
+					resourceKey: client.ObjectKey{
+						Namespace: cm1.Namespace,
+						Name:      cm1.Name,
+					},
+				}: testError,
+			}
+			cl = NewFakeClientWithInjectedErrors(scheme, errorsToReturn, dep, dep2, cm)
+			close(done)
+		})
+		AssertClientBehavior()
+		It("should return the error when trying to create", func() {
+			By("creating a deployment with an injected error")
+			err := cl.Create(context.Background(), dep3)
+			Expect(err).To(MatchError("test error"))
+			By("creating a configmap with an injected error")
+			err = cl.Create(context.Background(), cm1)
+			Expect(err).To(MatchError("test error"))
+			By("creating a deployment without an injected error")
+			err = cl.Create(context.Background(), dep2)
+			Expect(apierrors.IsAlreadyExists(err)).To(BeTrue())
+		})
+		It("should return the error when trying to update", func() {
+			By("updating a deployment with an injected error")
+			err := cl.Update(context.Background(), dep3)
+			Expect(err).To(MatchError("test error"))
+			By("updating a configmap with an injected error")
+			err = cl.Update(context.Background(), cm1)
+			Expect(err).To(MatchError("test error"))
+			By("updating a new configmap without an injected error")
+			newcm := &corev1.ConfigMap{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: "v1",
+					Kind:       "ConfigMap",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "test-cm2",
+					Namespace:       "ns2",
+					ResourceVersion: "",
+				},
+				Data: map[string]string{
+					"test-key": "test-value",
+				},
+			}
+			err = cl.Create(context.Background(), newcm)
+			Expect(err).NotTo(HaveOccurred())
+			err = cl.Update(context.Background(), newcm)
+			Expect(err).NotTo(HaveOccurred())
+		})
 	})
 })

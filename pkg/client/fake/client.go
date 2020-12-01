@@ -39,6 +39,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/internal/objectutil"
 )
 
+type errorKey struct {
+	action      string
+	resource    client.Object
+	resourceKey client.ObjectKey
+}
+
 type versionedTracker struct {
 	testing.ObjectTracker
 	scheme *runtime.Scheme
@@ -47,6 +53,7 @@ type versionedTracker struct {
 type fakeClient struct {
 	tracker versionedTracker
 	scheme  *runtime.Scheme
+	errorsToReturn map[errorKey]error
 }
 
 var _ client.Client = &fakeClient{}
@@ -67,6 +74,10 @@ func NewFakeClient(initObjs ...runtime.Object) client.Client {
 // for testing.
 // You can choose to initialize it with a slice of runtime.Object.
 func NewFakeClientWithScheme(clientScheme *runtime.Scheme, initObjs ...runtime.Object) client.Client {
+	return NewFakeClientWithInjectedErrors(clientScheme, map[errorKey]error{}, initObjs...)
+}
+
+func NewFakeClientWithInjectedErrors(clientScheme *runtime.Scheme, errToReturn map[errorKey]error, initObjs ...runtime.Object) client.Client {
 	tracker := testing.NewObjectTracker(clientScheme, scheme.Codecs.UniversalDecoder())
 	for _, obj := range initObjs {
 		err := tracker.Add(obj)
@@ -74,10 +85,28 @@ func NewFakeClientWithScheme(clientScheme *runtime.Scheme, initObjs ...runtime.O
 			panic(fmt.Errorf("failed to add object %v to fake client: %w", obj, err))
 		}
 	}
-	return &fakeClient{
-		tracker: versionedTracker{ObjectTracker: tracker, scheme: clientScheme},
-		scheme:  clientScheme,
+	injectedErrors := make(map[errorKey]error)
+	for errKey, _ := range errToReturn {
+		injectedErrors[errKey] = errToReturn[errKey]
 	}
+	return &fakeClient{
+		tracker:        versionedTracker{ObjectTracker: tracker, scheme: clientScheme},
+		scheme:         clientScheme,
+		errorsToReturn: injectedErrors,
+	}
+}
+
+
+//A helper method to get injected errors when errorKey is found in errorsToReturn map for testing error cases.
+func (c *fakeClient) getInjectedError(errKey errorKey) error {
+	return c.errorsToReturn[errKey]
+}
+
+
+//InjectActionWithError injects errorKey and error into errorsToReturn map for testing error cases.
+func (c *fakeClient) InjectActionWithError(errorKey errorKey, injectedError error) {
+	c.errorsToReturn[errorKey] = injectedError
+
 }
 
 func (t versionedTracker) Create(gvr schema.GroupVersionResource, obj runtime.Object, ns string) error {
@@ -281,6 +310,19 @@ func (c *fakeClient) Create(ctx context.Context, obj client.Object, opts ...clie
 		accessor.SetName(fmt.Sprintf("%s%s", base, utilrand.String(randomLength)))
 	}
 
+	errorKey := errorKey{
+		action:   "create",
+		resource: obj,
+		resourceKey: client.ObjectKey{
+			Namespace: accessor.GetNamespace(),
+			Name:      accessor.GetName(),
+		},
+	}
+
+	if err := c.getInjectedError(errorKey); err != nil {
+		return err
+	}
+
 	return c.tracker.Create(gvr, obj, accessor.GetNamespace())
 }
 
@@ -352,6 +394,19 @@ func (c *fakeClient) Update(ctx context.Context, obj client.Object, opts ...clie
 	}
 	accessor, err := meta.Accessor(obj)
 	if err != nil {
+		return err
+	}
+
+	errorKey := errorKey{
+		action:   "update",
+		resource: obj,
+		resourceKey: client.ObjectKey{
+			Namespace: accessor.GetNamespace(),
+			Name:      accessor.GetName(),
+		},
+	}
+
+	if err := c.getInjectedError(errorKey); err != nil {
 		return err
 	}
 	return c.tracker.Update(gvr, obj, accessor.GetNamespace())
