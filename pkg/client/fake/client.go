@@ -338,6 +338,19 @@ func (c *fakeClient) Delete(ctx context.Context, obj client.Object, opts ...clie
 	delOptions := client.DeleteOptions{}
 	delOptions.ApplyOptions(opts)
 
+	errorKey := errorKey{
+		action:   "delete",
+		resource: obj,
+		resourceKey: client.ObjectKey{
+			Namespace: accessor.GetNamespace(),
+			Name:      accessor.GetName(),
+		},
+	}
+
+	if err := c.getInjectedError(errorKey); err != nil {
+		return err
+	}
+
 	//TODO: implement propagation
 	return c.tracker.Delete(gvr, accessor.GetNamespace(), accessor.GetName())
 }

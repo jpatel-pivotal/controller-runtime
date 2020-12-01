@@ -593,6 +593,22 @@ var _ = Describe("Fake client", func() {
 						Name:      cm1.Name,
 					},
 				}: testError,
+				errorKey{
+					action:   "delete",
+					resource: dep3,
+					resourceKey: client.ObjectKey{
+						Namespace: dep3.Namespace,
+						Name:      dep3.Name,
+					},
+				}: testError,
+				errorKey{
+					action:   "delete",
+					resource: cm1,
+					resourceKey: client.ObjectKey{
+						Namespace: cm1.Namespace,
+						Name:      cm1.Name,
+					},
+				}: testError,
 			}
 			cl = NewFakeClientWithInjectedErrors(scheme, errorsToReturn, dep, dep2, cm)
 			close(done)
@@ -635,6 +651,17 @@ var _ = Describe("Fake client", func() {
 			Expect(err).NotTo(HaveOccurred())
 			err = cl.Update(context.Background(), newcm)
 			Expect(err).NotTo(HaveOccurred())
+		})
+		It("should return the error when trying to delete", func() {
+			By("deleting a deployment with an injected error")
+			err := cl.Delete(context.Background(), dep3)
+			Expect(err).To(MatchError("test error"))
+			By("deleting a configmap with an injected error")
+			err = cl.Delete(context.Background(), cm1)
+			Expect(err).To(MatchError("test error"))
+			By("deleting a deployment without an injected error")
+			err = cl.Delete(context.Background(), dep2)
+			Expect(err).ToNot(HaveOccurred())
 		})
 	})
 })
