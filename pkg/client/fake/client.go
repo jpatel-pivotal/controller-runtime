@@ -192,6 +192,17 @@ func (c *fakeClient) Get(ctx context.Context, key client.ObjectKey, obj client.O
 	if err != nil {
 		return err
 	}
+
+	errorKey := errorKey{
+		action:   "get",
+		resource: obj,
+		resourceKey: key,
+	}
+
+	if err := c.getInjectedError(errorKey); err != nil {
+		return err
+	}
+
 	o, err := c.tracker.Get(gvr, key.Namespace, key.Name)
 	if err != nil {
 		return err

@@ -547,7 +547,7 @@ var _ = Describe("Fake client", func() {
 	})
 	Context("with injected error", func() {
 		var (
-			dep3 *appsv1.Deployment
+			dep3, dep4 *appsv1.Deployment
 			cm1  *corev1.ConfigMap
 		)
 		BeforeEach(func(done Done) {
@@ -557,6 +557,10 @@ var _ = Describe("Fake client", func() {
 			Expect(coordinationv1.AddToScheme(scheme)).To(Succeed())
 			dep3 = dep.DeepCopy()
 			dep3.Name = "test-deployment-3"
+			dep4 = dep.DeepCopy()
+			//dep4.Name = "test-deployment-4"
+			dep4.Name =""
+			dep4.Namespace =""
 			cm1 = cm.DeepCopy()
 			cm1.Name = "test-cm1"
 			testError := errors.NewBadRequest("test error")
@@ -603,6 +607,22 @@ var _ = Describe("Fake client", func() {
 				}: testError,
 				errorKey{
 					action:   "delete",
+					resource: cm1,
+					resourceKey: client.ObjectKey{
+						Namespace: cm1.Namespace,
+						Name:      cm1.Name,
+					},
+				}: testError,
+				errorKey{
+					action:   "get",
+					resource: &appsv1.Deployment{},
+					resourceKey: client.ObjectKey{
+						Namespace: dep3.Namespace,
+						Name:      dep3.Name,
+					},
+				}: testError,
+				errorKey{
+					action:   "get",
 					resource: cm1,
 					resourceKey: client.ObjectKey{
 						Namespace: cm1.Namespace,
@@ -662,6 +682,28 @@ var _ = Describe("Fake client", func() {
 			By("deleting a deployment without an injected error")
 			err = cl.Delete(context.Background(), dep2)
 			Expect(err).ToNot(HaveOccurred())
+		})
+		It("should return the error when trying to get", func() {
+			By("getting a deployment with an injected error")
+			getDeployment := &appsv1.Deployment{}
+			resourceKey :=
+				client.ObjectKey{
+					Namespace: "ns1",
+					Name:      "test-deployment-3",
+				}
+			//cl = NewFakeClient(dep, dep2, cm, getDeployment)
+			err := cl.Get(context.Background(),resourceKey, getDeployment)
+			Expect(err).To(MatchError("test error"))
+			By("getting a configmap with an injected error")
+			getConfigMap := &corev1.ConfigMap{}
+			resourceKey.Name = cm1.Name
+			resourceKey.Namespace = cm1.Namespace
+			err = cl.Get(context.Background(),resourceKey, getConfigMap)
+			Expect(err).To(MatchError("test error"))
+			By("getting a deployment without an injected error")
+			err = cl.Get(context.Background(), resourceKey, getConfigMap)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(getConfigMap).To(Equal(cm))
 		})
 	})
 })
